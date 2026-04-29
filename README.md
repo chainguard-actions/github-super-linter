@@ -1,6 +1,12 @@
 # github/super-linter
 
-Hardened GitHub Action by [Chainguard](https://www.chainguard.dev).
+Hardened by [Chainguard](https://www.chainguard.dev) from the upstream action at [https://github.com/github/super-linter](https://github.com/github/super-linter).
+
+## Versions
+
+| Version | Tag | Upstream commit |
+|---------|-----|-----------------|
+| v7 | [`v7`](https://github.com/chainguard-actions/super-linter/tree/v7) | — |
 
 ## Privacy
 
