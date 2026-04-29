@@ -1,5 +1,6 @@
 {
   "owner": "github",
   "name": "super-linter",
-  "visibility": ""
+  "visibility": "internal",
+  "description": "Combination of multiple linters to install as a GitHub Action"
 }
