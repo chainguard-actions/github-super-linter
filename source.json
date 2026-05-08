@@ -1,4 +1,6 @@
 {
-  "upstream": "github/super-linter",
-  "version": "v7"
+  "owner": "github",
+  "repo": "super-linter",
+  "version": "",
+  "url": "https://github.com/github/super-linter"
 }
