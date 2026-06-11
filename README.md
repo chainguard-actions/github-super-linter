@@ -1,6 +1,5 @@
-# github/super-linter
 
-Hardened GitHub Action by [Chainguard](https://www.chainguard.dev).
+This repository is a fork of the upstream https://github.com/super-linter/super-linter. Please direct all pull requests and issues there as this repository will not always be up to date.
 
 ## Privacy
 

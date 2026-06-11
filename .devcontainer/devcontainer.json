@@ -1,0 +1,38 @@
+{
+  "name": "Super-Linter",
+  "image": "ghcr.io/super-linter/super-linter:latest",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.wordWrap": "off",
+        "prettier.resolveGlobalModules": true
+      },
+      "extensions": [
+        "DavidAnson.vscode-markdownlint",
+        "EditorConfig.EditorConfig",
+        "esbenp.prettier-vscode",
+        "GitHub.vscode-github-actions",
+        "GitHub.vscode-pull-request-github",
+        "mads-hartmann.bash-ide-vscode",
+        "mkhl.shfmt",
+        "ms-azuretools.vscode-docker",
+        "ms-vscode.makefile-tools",
+        "timonwong.shellcheck"
+      ]
+    }
+  },
+  "mounts": [
+    {
+      "source": "${localWorkspaceFolder}/TEMPLATES",
+      "target": "/action/lib/.automation",
+      "type": "bind"
+    },
+    {
+      "source": "${localWorkspaceFolder}/lib",
+      "target": "/action/lib",
+      "type": "bind"
+    }
+  ],
+  "runArgs": ["--env-file", ".devcontainer/devcontainer.env"]
+}
