@@ -1,6 +1,6 @@
 # github/super-linter
 
-Combination of multiple linters to install as a GitHub Action
+Super-linter is a ready-to-run collection of linters and code analyzers, to help validate your source code.
 
 Hardened by [Chainguard](https://www.chainguard.dev) from the upstream action at [https://github.com/github/super-linter](https://github.com/github/super-linter).
 
