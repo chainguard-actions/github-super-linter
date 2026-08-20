@@ -1,0 +1,11 @@
+{
+  "name": "super-linter-test",
+  "version": "1.0.0",
+  "description": "A valid JSON file for testing super-linter",
+  "items": [
+    "one",
+    "two",
+    "three"
+  ],
+  "enabled": true
+}

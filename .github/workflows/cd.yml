@@ -1,0 +1,275 @@
+name: Publish Images
+
+on:
+  push:
+    branches:
+      - main
+
+# Don't grant any access by default
+permissions: {}
+
+jobs:
+  test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-main-${{ matrix.images.target }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      issues: write
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        images:
+          - prefix: slim-
+            target: slim
+          - prefix: ""
+            target: standard
+    timeout-minutes: 60
+    env:
+      CONTAINER_IMAGE_ID: "ghcr.io/super-linter/super-linter:${{ matrix.images.prefix }}latest"
+      CONTAINER_IMAGE_TARGET: "${{ matrix.images.target }}"
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Set build metadata
+        env:
+          GH_EVENT_NAME: ${{ github.event_name }}
+          GH_SHA: ${{ github.sha }}
+          GH_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [[ "${GH_EVENT_NAME}" == 'push' ]] || [[ "${GH_EVENT_NAME}" == 'merge_group' ]]; then
+            BUILD_REVISION="${GH_SHA}"
+          elif [[ "${GH_EVENT_NAME}" == 'pull_request' ]]; then
+            BUILD_REVISION="${GH_PR_HEAD_SHA}"
+          else
+            echo "[ERROR] Event not supported when setting build revision and build version"
+            exit 1
+          fi
+
+          . scripts/build-metadata.sh
+
+          if [ -z "${BUILD_DATE}" ]; then
+            echo "[ERROR] BUILD_DATE is empty"
+            exit 1
+          fi
+
+          if [ -z "${BUILD_REVISION}" ]; then
+            echo "[ERROR] BUILD_REVISION is empty"
+            exit 1
+          fi
+
+          if [ -z "${BUILD_VERSION}" ]; then
+            echo "[ERROR] BUILD_VERSION is empty"
+            exit 1
+          fi
+
+          echo "Build date (GH Actions workflow): ${BUILD_DATE}"
+          echo "Build revision (GH Actions workflow): ${BUILD_REVISION}"
+          echo "Build version (GH Actions workflow): ${BUILD_VERSION}"
+
+          safe_build_date=$(printf '%s' "${BUILD_DATE}" | tr -d '\n\r')
+          safe_build_revision=$(printf '%s' "${BUILD_REVISION}" | tr -d '\n\r')
+          safe_build_version=$(printf '%s' "${BUILD_VERSION}" | tr -d '\n\r')
+
+          {
+            echo "BUILD_DATE=${safe_build_date}"
+            echo "BUILD_REVISION=${safe_build_revision}"
+            echo "BUILD_VERSION=${safe_build_version}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Free Disk space
+        shell: bash
+        run: |
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /usr/local/.ghcup || true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build Image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ./Dockerfile
+          build-args: |
+            BUILD_DATE=${{ env.BUILD_DATE }}
+            BUILD_REVISION=${{ env.BUILD_REVISION }}
+            BUILD_VERSION=${{ env.BUILD_VERSION }}
+          cache-from: type=registry,ref=${{ env.CONTAINER_IMAGE_ID }}-buildcache
+          load: true
+          push: false
+          secrets: |
+            GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
+          tags: |
+            ${{ env.CONTAINER_IMAGE_ID }}
+          target: "${{ matrix.images.target }}"
+
+      - name: Run Test Suite
+        run: make test
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to GHCR
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push Image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ./Dockerfile
+          build-args: |
+            BUILD_DATE=${{ env.BUILD_DATE }}
+            BUILD_REVISION=${{ env.BUILD_REVISION }}
+            BUILD_VERSION=${{ env.BUILD_VERSION }}
+          cache-from: type=registry,ref=${{ env.CONTAINER_IMAGE_ID }}-buildcache
+          cache-to: type=registry,ref=${{ env.CONTAINER_IMAGE_ID }}-buildcache,mode=max
+          load: false
+          push: true
+          secrets: |
+            GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
+          tags: |
+            ${{ env.CONTAINER_IMAGE_ID }}
+          target: "${{ matrix.images.target }}"
+
+      - name: Create Issue on Failure
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        if: failure()
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            const create = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: "Failed to deploy to production",
+              body: "Automation has failed us!\nMore information can be found at:\n - ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              assignees: [
+                "zkoppert", "Hanse00", "ferrarimarco"
+              ]
+            })
+
+  release:
+    name: Release
+    needs:
+      - test
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-main-release
+      cancel-in-progress: true
+    permissions:
+      contents: write
+      issues: write
+      packages: write
+      pull-requests: write
+    timeout-minutes: 60
+    steps:
+      - uses: googleapis/release-please-action@7987652d64b4581673a76e33ad5e98e3dd56832f # v4.1.3
+        id: release
+        with:
+          config-file: .github/release-please/release-please-config.json
+          manifest-file: .github/release-please/.release-please-manifest.json
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure release metedata
+        if: steps.release.outputs.release_created
+        env:
+          RELEASE_TAG_NAME: ${{ steps.release.outputs.tag_name }}
+          RELEASE_MAJOR: ${{ steps.release.outputs.major }}
+        # shellcheck disable=SC2062
+        run: |
+          RELEASE_VERSION="${RELEASE_TAG_NAME}"
+
+          if [ -z "${RELEASE_VERSION}" ]; then
+            echo "Error RELEASE_VERSION is empty. Exiting..."
+            exit 1
+          fi
+
+          if ! echo "${RELEASE_VERSION}" | grep -E -o "v[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+"; then
+            echo "Error: RELEASE_VERSION doesn't look like a semantic version: ${RELEASE_VERSION}"
+            exit 2
+          fi
+
+          SEMVER_MAJOR_VERSION="v${RELEASE_MAJOR}"
+
+          safe_release_version=$(printf '%s' "${RELEASE_VERSION}" | tr -d '\n\r')
+          safe_semver_major=$(printf '%s' "${SEMVER_MAJOR_VERSION}" | tr -d '\n\r')
+
+          {
+            echo "RELEASE_VERSION=${safe_release_version}"
+            echo "SEMVER_MAJOR_VERSION=${safe_semver_major}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Login to GHCR
+        if: steps.release.outputs.release_created
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # We don't rebuild the image to avoid that the latest tag and the release tags don't point to the very same container image.
+      # Instead, we pull the latest image and tag it.
+      - name: Retag and Push Images
+        if: steps.release.outputs.release_created
+        uses: akhilerm/tag-push-action@f35ff2cb99d407368b5c727adbcc14a2ed81d509 # v2.2.0
+        with:
+          src: ghcr.io/super-linter/super-linter:latest
+          dst: |
+            ghcr.io/super-linter/super-linter:${{ env.SEMVER_MAJOR_VERSION }}
+            ghcr.io/super-linter/super-linter:${{ env.RELEASE_VERSION }}
+
+      - name: Retag and Push Images slim
+        if: steps.release.outputs.release_created
+        uses: akhilerm/tag-push-action@f35ff2cb99d407368b5c727adbcc14a2ed81d509 # v2.2.0
+        with:
+          src: ghcr.io/super-linter/super-linter:slim-latest
+          dst: |
+            ghcr.io/super-linter/super-linter:slim-${{ env.SEMVER_MAJOR_VERSION }}
+            ghcr.io/super-linter/super-linter:slim-${{ env.RELEASE_VERSION }}
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      # No need to tag major.minor.patch because that tag is automatically created when creating the release
+      - name: Tag major, minor, and latest versions
+        if: steps.release.outputs.release_created
+        env:
+          SEMVER_MAJOR_VERSION: ${{ env.SEMVER_MAJOR_VERSION }}
+          RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
+        run: |
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
+          git tag --annotate --force "${SEMVER_MAJOR_VERSION}" -m "Release ${SEMVER_MAJOR_VERSION}"
+          git tag --annotate --force latest -m "Release latest (${RELEASE_VERSION})"
+
+          git push --force origin "${SEMVER_MAJOR_VERSION}"
+          git push --force origin latest
+
+      - name: Create Issue on Failure
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        if: failure()
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            const create = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: "Failed to deploy to production",
+              body: "Automation has failed us!\nMore information can be found at:\n - ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              assignees: [
+                "zkoppert", "Hanse00", "ferrarimarco"
+              ]
+            })

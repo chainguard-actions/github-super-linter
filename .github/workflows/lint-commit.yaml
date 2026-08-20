@@ -1,0 +1,83 @@
+---
+name: Lint commit
+
+on:
+  push:
+  pull_request:
+  merge_group:
+
+# Don't grant any access by default
+permissions: {}
+
+jobs:
+  commitlint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if the pull request contains a single commit
+        if: github.event_name == 'pull_request'
+        env:
+          PR_COMMITS: ${{ github.event.pull_request.commits }}
+        run: |
+          commit_count="${PR_COMMITS}"
+
+          if [ -z "${commit_count}" ]; then
+            echo "[ERROR] commit_count is empty"
+            exit 1
+          fi
+
+          if [[ "${commit_count}" -ne 1 ]]; then
+            echo "[ERROR] This pull request contains ${commit_count} commits. Squash these commits into a single commit."
+            exit 1
+          else
+            echo "This pull request contains ${commit_count} commit."
+          fi
+
+      - name: Set commit metadata
+        env:
+          GH_EVENT_NAME: ${{ github.event_name }}
+          GH_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GH_PR_COMMITS: ${{ github.event.pull_request.commits }}
+        run: |
+          SET_INTERVAL_VALUES="true"
+          if [[ "${GH_EVENT_NAME}" == 'push' ]] || [[ "${GH_EVENT_NAME}" == 'merge_group' ]]; then
+            echo "Using default commit metadata"
+            SET_INTERVAL_VALUES="false"
+          elif [[ "${GH_EVENT_NAME}" == 'pull_request' ]]; then
+            FROM_INTERVAL_COMMITLINT="${GH_PR_HEAD_SHA}~${GH_PR_COMMITS}"
+            TO_INTERVAL_COMMITLINT="${GH_PR_HEAD_SHA}"
+          else
+            echo "[ERROR] Event not supported when setting commit metadata"
+            exit 1
+          fi
+
+          if [ "${SET_INTERVAL_VALUES}" == "true" ]; then
+            if [ -z "${FROM_INTERVAL_COMMITLINT}" ]; then
+              echo "[ERROR] FROM_INTERVAL_COMMITLINT is empty"
+              exit 1
+            fi
+
+            if [ -z "${TO_INTERVAL_COMMITLINT}" ]; then
+              echo "[ERROR] TO_INTERVAL_COMMITLINT is empty"
+              exit 1
+            fi
+
+            safe_from=$(printf '%s' "${FROM_INTERVAL_COMMITLINT}" | tr -d '\n\r')
+            safe_to=$(printf '%s' "${TO_INTERVAL_COMMITLINT}" | tr -d '\n\r')
+
+            {
+              echo "FROM_INTERVAL_COMMITLINT=${safe_from}"
+              echo "TO_INTERVAL_COMMITLINT=${safe_to}"
+            } >> "${GITHUB_ENV}"
+          else
+            echo "Skip updating GITHUB_ENV. SET_INTERVAL_VALUES: ${SET_INTERVAL_VALUES}"
+          fi
+
+      - name: Validate commits
+        run: |
+          make lint-commits
