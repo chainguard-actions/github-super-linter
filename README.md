@@ -8,7 +8,7 @@ Hardened by [Chainguard](https://www.chainguard.dev) from the upstream action at
 
 | Version | Tag | Upstream commit |
 |---------|-----|-----------------|
-| v7 | [`v7`](https://github.com/chainguard-actions/github-super-linter/tree/v7) | — |
+| v7 | [`v7`](https://github.com/chainguard-actions/github-super-linter/tree/v7) | [`b807e99`](https://github.com/github/super-linter/commit/b807e99ddd37e444d189cfd2c2ca1274d8ae8ef1) |
 
 ## Privacy
 
